@@ -1,0 +1,1633 @@
+---
+title: "Customer Churn Prediction"
+author: "Huy Nguyen"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: 
+      collapsed: true
+      smooth_scroll: true
+    number_sections: true
+    highlight: zenburn
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Data preparation and Exploratory Data Analysis
+
+```{r}
+# Load packages
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(glmnet)
+library(pROC)
+library(e1071)
+library(naivebayes)
+library(MASS)
+library(caret)
+library(tree)
+
+# Load dataset
+load("Model_Building_Data.rda")
+str(Model_Building_Data)
+```
+
+
+## Data Preparation and Exploratory Analysis
+
+### Cleaning the data - Checking for missing values, handling data types & removing duplicates
+
+
+```{r}
+# Replacing Missing Values with mean if the data is numeric
+# Create a new dataset without missing value
+clean.data <- Model_Building_Data %>%
+  mutate(TotalCharges = ifelse(is.na(TotalCharges),mean(Model_Building_Data$TotalCharges, na.rm = TRUE),TotalCharges)) %>%
+  mutate(Status = as.factor(ifelse(Status == "Current",1,0)))
+```
+
+## Exploring the dataset
+
+### Exploring numerical values in the dataset
+
+**Gender**
+
+```{r}
+ggplot(clean.data, aes(Gender)) +
+  geom_bar(fill = "lightblue", width = 0.7) +
+  labs(title = "Distribution of Gender")
+
+```
+
+- *Gender*: there is hardly any different between the two gender
+
+**SeniorCitizen**
+
+```{r}
+ggplot(clean.data, aes(x = as.factor(SeniorCitizen))) +
+  geom_bar(fill = "blue", width = 0.7) +
+  labs(title = "Distribution of Senior Citizens", x = "Senior Citizen")
+
+
+```
+
+
+- *SeniorCitizens*: majority of customer are non-senior
+
+**Partner**
+
+```{r}
+ggplot(clean.data, aes(x = Partner)) +
+  geom_bar(fill = "lightgreen", width = 0.7) +
+  labs(title = "Distribution of Partner Status")
+
+```
+
+- *Partner*: the customers who is single are slightly larger than customers who has partner by a small margin
+
+**Dependents**
+
+```{r}
+ggplot(clean.data, aes(x = Dependents)) +
+  geom_bar(fill = "lightcoral", width = 0.7) +
+  labs(title = "Distribution of Dependent Status")
+
+```
+
+
+- *Dependents*: it seem that most of the customers are not dependents
+
+**Tenure**
+
+
+```{r}
+ggplot(clean.data, aes(x = Tenure)) +
+  geom_bar(fill = "maroon", width = 0.7) +
+  labs(title = "Distribution of Tenure")
+```
+
+- *Tenure*: As we can see from the graph this could tell us that the 2 big spikes are the number of new customers and the loyal customers
+
+
+**PhoneService**
+
+```{r}
+ggplot(clean.data, aes(x = PhoneService)) +
+  geom_bar(fill = "lightseagreen", width = 0.7) +
+  labs(title = "Distribution of Phone Service")
+
+```
+
+- *PhoneService*: majority of customer do have phone service
+
+**MultipleLines**
+```{r}
+
+```
+
+```{r}
+ggplot(clean.data, aes(x = MultipleLines)) +
+  geom_bar(fill = "red", width = 0.7) +
+  labs(title = "Distribution of Multiple Lines")
+
+```
+
+- *MultipleLines*: customers without multiple lines of service are noticeably larger than the customers with multiple lines but not by too big of a margin. It also does seem that customers without services are the minority here
+
+**InternetService**
+
+```{r}
+ggplot(clean.data, aes(x = InternetService)) +
+  geom_bar(fill = "gold", width = 0.7) +
+  labs(title = "Distribution of Internet Service")
+
+```
+
+
+- *InternetService*: majority of customer do seem to prefer fiber optic over dsl and no internet service 
+
+**OnlineSecurity**
+
+```{r}
+ggplot(clean.data, aes(x = OnlineSecurity)) +
+  geom_bar(fill = "green", width = 0.7) +
+  labs(title = "Distribution of Online Security")
+
+```
+
+
+- *OnlineSecurity*: majority of customers seem to not care about the online security
+
+**DeviceProtection**
+
+```{r}
+ggplot(clean.data, aes(x = DeviceProtection)) +
+  geom_bar(fill = "coral", width = 0.7) +
+  labs(title = "Distribution of Device Protection")
+
+```
+
+- *DeviceProtection*: interestingly enough, customers also seem to not care about the protection of their device
+
+**StreamingMovies**
+
+```{r}
+ggplot(clean.data, aes(x = StreamingMovies)) +
+  geom_bar(fill = "brown", width = 0.7) +
+  labs(title = "Distribution of Streaming Movies")
+
+```
+
+
+- *StreamingMovies*: the customers who consume streaming movies and customers who do not hardly has any different. The group of customers who do not have internet services do not have access to the streaming movies
+
+**Contract**
+
+```{r}
+ggplot(clean.data, aes(x = Contract)) +
+  geom_bar(fill = "orange", width = 0.7) +
+  labs(title = "Distribution of Streaming Contract")
+```
+
+- *Contract*: majority of people seem to prefer month-to-month payments over the one year and two years payment
+
+
+**PaperlessBilling**
+
+```{r}
+ggplot(clean.data, aes(x = PaperlessBilling)) +
+  geom_bar(fill = "grey",width = 0.7) +
+  labs(title = "Distribution of Paperless Billing")
+```
+
+- *PaperlessBilling*: the majority of customers seem to prefer paperless billing 
+
+**PaymentMethod**
+
+```{r}
+ggplot(clean.data, aes(x = PaymentMethod)) +
+  geom_bar(fill = "purple", width = 0.7) +
+  labs(title = "Distribution of Payment Method")
+```
+
+
+- *PaymentMethod*: most customers prefer to pay the payment electronically while other method such as mailed check, bank transfer, and credit card are roughly the same with mailed check slightly higher
+
+
+**Status**
+
+```{r}
+ggplot(clean.data, aes(x = Status)) +
+  geom_bar(fill = "darkgreen", width = 0.7) +
+  labs(title = "Distribution of Status")
+```
+
+
+- *Status*: majority of customers are currently still with the company and the number of customers who has left is much fewer in comparison
+
+**MonthlyCharges**
+
+
+```{r}
+ggplot(clean.data, aes(x = MonthlyCharges)) +
+  geom_histogram(binwidth = 5, fill = "darkred") +
+  labs(title = "Distribution of Monthly Charges")
+```
+
+
+- *MonthlyCharges*: The histogram show that majority of customers paying around $20 a month
+
+**TotalCharges**
+
+
+```{r}
+ggplot(clean.data, aes(x = TotalCharges)) +
+  geom_histogram(binwidth = 100, fill = "violet") +
+  labs(title = "Distribution of Total Charges")
+```
+
+
+- *TotalCharges*: The right skewed of the histogram show that most cutomers prefer to pay lower total charge comepare to higher charge. The higher the total charge the less the customers
+
+
+### Customer status relationship with other independent variables
+
+**Gender**
+
+```{r}
+
+ggplot(clean.data, aes(x = Gender, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Gender by Customer Status",
+       x = "Gender",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *Gender & Status*: Number of customer from both sex are almost the same. The bar graph show that both the male and female proportion are almost the same for the customers who has left and who still stay with the company.This could mean that gender has little to no impact on the customer status
+
+**SeniorCitizen**
+
+
+```{r}
+ggplot(clean.data, aes(x = SeniorCitizen, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Senior Citizens by Customer Status",
+       x = "SeniorCitizen",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *SeniorCitizen & Status*: There is more non-senior customer than senior customers. The graph show that senior customers are likely to left the company because the left status of senior is almost half of the current senior customers. Which could tell us that there is a strong relationship between senior citizens and status
+
+**Partner**
+
+```{r}
+ggplot(clean.data, aes(x = Partner, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Partner by Customer Status",
+       x = "Partner",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *Partner & Status*: There are slight different between partner and non-partner customers, as the partner more likely to stay and not left the company where as non-partner are likely to left the company with left status in non-partner is half of the current non-partner. There is a relationship between partner and status
+
+**Dependents**
+
+
+```{r}
+
+ggplot(clean.data, aes(x = Dependents, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Dependents by Customer Status",
+       x = "Dependents",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *Dependents & Status*: There are more independent customers than dependent customers but independent customers also left more than dependent customers. This mean that if the company can increase the dependent customers then they can increase the current customers and reduce the leaving rate down
+
+**Tenure**
+
+```{r}
+ggplot(clean.data, aes(x = TotalCharges, fill = Status)) +
+  geom_histogram(alpha = 1, bins = 20) +
+  labs(title = "Proportion of Tenure by Customer Status",
+       x = "Tenure",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+
+```
+
+- Observations *Tenure & Status*: This graph suggest that there is a good relationship between tenure and status as it seem that the longer the customer been with the company, the less likely they are going to leave
+
+
+**PhoneService**
+
+```{r}
+ggplot(clean.data, aes(x = PhoneService, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Phone Service by Customer Status",
+       x = "PhoneService",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *PhoneService & Status*: This graph show that customers who has phone service has high rate of leaving but it doesn't really show much relation between phone service and status and phone service also seem to not have any significant relationship with status
+
+
+**MultipleLines**
+
+```{r}
+ggplot(clean.data, aes(x = MultipleLines, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Multiple Lines by Customer Status",
+       x = "MultipleLines",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *MultipleLines & Status*: the graph show that people who has multiple line of service are more likely to leave but also show that there hardly any significant relation between MultipleLines & Status as having multiple line of service or not doesn't change the retention rate at all
+
+**InternetService**
+
+```{r}
+ggplot(clean.data, aes(x = InternetService, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Internet Service by Customer Status",
+       x = "InternetService",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *InternetService & Status*: This graph show that fiber optic service have a very high churn rate and people who has no internet service seem to have the highest retention rate. This could mean that there is something wrong with the fiber optic service
+
+**OnlineSecurity**
+
+
+```{r}
+ggplot(clean.data, aes(x = OnlineSecurity, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Online Security by Customer Status",
+       x = "OnlineSecurity",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *OnlineSecurity & Status*: The graph show that people who has online security service and no internet service have significantly higher chance of keeping the customer compare to customer with no online security service
+
+**DeviceProtection**
+
+```{r}
+ggplot(clean.data, aes(x = DeviceProtection, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Device Protection by Customer Status",
+       x = "DeviceProtection",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *DeviceProtection & Status*: This show that people who has device protection or people with no internet service are more likely to stay with the company than the customers who has no device protection, which could indicate that there if offer device protection then the customer could likely to stay with the business
+
+**StreamingMovies**
+
+```{r}
+ggplot(clean.data, aes(x = StreamingMovies, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Streaming Movies by Customer Status",
+       x = "StreamingMovies",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *StreamingMovies & Status*: The graph show there is not much different between the customers who use streaming movies services with those who don't, so there is no significant relationship between streaming movies and status
+
+**Contract**
+
+```{r}
+ggplot(clean.data, aes(x = Contract, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Contract by Customer Status",
+       x = "Contract",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *Contract & Status*: there seem to be a interesting relationship between contract and status since there is way more customer who pay month-to-month but it is also has the highest churn rate, while one year and two years has significantly lower churn rate. If the company can get the customer to sign up for longer contract then we can increase the retention rate
+
+**PaperlessBilling**
+
+```{r}
+ggplot(clean.data, aes(x = PaperlessBilling, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Paperless Billing by Customer Status",
+       x = "PaperlessBilling",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *PaperlessBilling & Status*: There is way more people using paperless billing but it also has way higher churn rate, I am not sure going paper billing would increase the retention rate in customers but the graph do show a different in churn rate so there could be a significant relationship between paperless billing and status
+
+**PaymentMethod**
+
+```{r}
+ggplot(clean.data, aes(x = PaymentMethod, fill = Status)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proportion of Payment Method by Customer Status",
+       x = "PaymentMethod",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *Gender & Status*: all the payment methods have almost same number of customer but electronic method has way higher churn rate compare to other methods
+
+**MonthlyCharges**
+
+```{r}
+ggplot(clean.data, aes(x = MonthlyCharges, fill = Status)) +
+  geom_histogram(alpha = 1, bins = 20) +
+  labs(title = "Proportion of Monthly Charges by Customer Status",
+       x = "MonthlyCharges",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *MonthlyCharges & Status*: It seem that customers who pay less would likely to stay with the business more than the customers who pay more
+
+**TotalCharges**
+
+```{r}
+ggplot(clean.data, aes(x = TotalCharges, fill = Status)) +
+  geom_histogram(alpha = 1, bins = 20) +
+  labs(title = "Proportion of Total Charges by Customer Status",
+       x = "TotalCharges",
+       y = "Proportion") +
+  scale_fill_manual(values = c("green", "red")) +
+  theme_minimal()
+```
+
+- Observations *TotalCharges & Status*: There is a consistent tren of the higher the total charge the fewer customer, but it also has lower churn rate which tell us that loyal customers are important and we must try to keep them
+ 
+
+
+### Split the data set randomly into a training set (80%) and a test set (20%).
+
+```{r}
+# Split the data set
+set.seed(99)
+train <- sample(1:nrow(clean.data), nrow(clean.data)*0.8)
+clean.data.train <- clean.data[train,]
+clean.data.test <- clean.data[-train,]
+```
+
+# Logistic Regression
+
+## Use the training set to build a Logistic Regression model to predict the probability for losing a customer.
+
+
+### Build model with all independent variables. 
+
+```{r}
+# Store the Logistic Regression model as logistic.model.train
+logistic.model.train <- glm(Status ~ ., data = clean.data.train, family = binomial)
+
+# Create the summary of the Logistic Regression Model
+summary(logistic.model.train)
+```
+
+*It can be seen that the model has data multicollinearity. We should drop a few correlated variables.*
+
+### Consider Variable Selection
+
+```{r}
+# Perform backward elimination
+reduced_model <- step(logistic.model.train, direction = "backward")
+```
+
+*The best model is with the lowest AIC: 4316.62*
+
+### Build a new model based on the lowest AIC
+
+```{r}
+# Store the Logistic Regression model as logistic.model.train
+logistic.model.new <- glm(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    DeviceProtection + StreamingMovies + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges, data = clean.data.train, family = binomial)
+
+# Create the summary of the Logistic Regression Model
+summary(logistic.model.new)
+```
+
+
+*Multicollinearity keeps existing. We should remove variables with NA values in the model.*
+
+
+### Logistic Model 
+
+```{r}
+# Store the Logistic Regression model as logistic.model.train
+logistic.model.new1 <- glm(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges, data = clean.data.train, family = binomial)
+
+# Create the summary of the Logistic Regression Model
+summary(logistic.model.new1)
+```
+
+
+### Probability of losing a customer
+
+```{r}
+# Predict probabilities for losing a customer
+probabilities <- predict(logistic.model.new1, newdata = clean.data.test, type = "response")
+```
+
+
+### Prediction Accuracy
+
+```{r}
+# Set threshold to 0.5 and assign Status
+Predictions.Status.Test.thresh0.5 <- ifelse(probabilities < 0.5, "0", "1")
+# Create a vector consisting of the actual values for Status from the test set
+Actual.Status.Test <- clean.data.test$Status
+# Prediction Accuracy with threshold = 0.5
+table(Predictions.Status.Test.thresh0.5, Actual.Status.Test)
+```
+*Comments:*
+
+* Prediction Accuracy is: (205+838)/(205+108+149+838)=0.8023, i.e.,  80.23%
+* The test error rate is: 100 - 80.23 = 19.77%
+* The percentage of Current Customer predicted correctly is 838/(108+838) = 0.8858 or 88.58%
+* The percentage of Left Customer predicted correctly is 205/(205+149) = 0.5791 or 57.91%
+* The percentage of Left predictions that were incorrectly classified as Current is 149/(205+149) = 0.4209 or 42.09%.
+* The percentage of Current predictions that were incorrectly classified as Left is 108/(108+838) = 0.1142 or 11.42%.
+
+
+### AUC and ROC plot. 
+
+```{r}
+# Create ROC plot
+roc_curve0 <- roc(clean.data.test$Status, probabilities)
+plot(roc_curve0, main = "ROC Curve", col = "skyblue")
+legend("bottomright", legend = paste("AUC =", round(auc(roc_curve0), 2)), col = "skyblue", lwd = 2)
+
+# Compute the AUC
+logistic_auc <- auc(roc_curve0)
+print(paste("AUC:", logistic_auc))
+
+```
+
+
+
+## Try different combinations of variables and arrive at the model that maximizes AUC (Area Under the Curve) for the ROC plots.
+
+### Log of TotalCharges
+
+```{r}
+# Compute the logarithm of TotalCharges
+clean.data.train$log_TotalCharges <- log(clean.data.train$TotalCharges)
+
+# Fit the logistic regression model with the interaction term
+logistic_model_interaction1 <- glm(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+                                  Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+                                  TotalCharges + log_TotalCharges,
+                                data = clean.data.train, family = binomial)
+
+# Print the summary of the logistic regression model
+summary(logistic_model_interaction1)
+
+# Create log_TotalCharges variable in clean.data.test
+clean.data.test$log_TotalCharges <- log(clean.data.test$TotalCharges)
+
+# Predict probabilities on the test dataset
+predicted_prob1 <- predict(logistic_model_interaction1, newdata = clean.data.test, type = "response")
+
+# Create ROC plot
+roc_curve1 <- roc(clean.data.test$Status, predicted_prob1)
+plot(roc_curve1, main = "ROC Curve", col = "skyblue")
+legend("bottomright", legend = paste("AUC =", round(auc(roc_curve1), 2)), col = "skyblue", lwd = 2)
+
+# Compute the AUC
+auc_value1 <- auc(roc_curve1)
+print(paste("AUC:", auc_value1))
+
+```
+
+
+### Tenure and Contract
+
+
+```{r}
+# Fit the logistic regression model with the new interaction term
+logistic_model_interaction2 <- glm(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+                                  Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + TotalCharges +
+                                  Contract:Tenure, # New interaction term
+                                data = clean.data.train, family = binomial)
+
+# Print the summary of the logistic regression model
+summary(logistic_model_interaction2)
+
+# Predict probabilities on the test dataset
+predicted_prob2 <- predict(logistic_model_interaction2, newdata = clean.data.test, type = "response")
+
+# Create ROC plot
+roc_curve2 <- roc(clean.data.test$Status, predicted_prob2)
+plot(roc_curve2, main = "ROC Curve", col = "skyblue")
+legend("bottomright", legend = paste("AUC =", round(auc(roc_curve2), 2)), col = "skyblue", lwd = 2)
+
+# Compute the AUC
+auc_value2 <- auc(roc_curve2)
+print(paste("AUC:", auc_value2))
+
+```
+
+### Senior and Contract
+
+```{r}
+# Fit the logistic regression model with the new interaction term
+logistic_model_interaction3 <- glm(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+                                  Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + TotalCharges +
+                                  Contract:SeniorCitizen, # New interaction term
+                                data = clean.data.train, family = binomial)
+
+# Print the summary of the logistic regression model
+summary(logistic_model_interaction3)
+
+# Predict probabilities on the test dataset
+predicted_prob3 <- predict(logistic_model_interaction3, newdata = clean.data.test, type = "response")
+
+# Create ROC plot
+roc_curve3 <- roc(clean.data.test$Status, predicted_prob3)
+plot(roc_curve3, main = "ROC Curve", col = "skyblue")
+legend("bottomright", legend = paste("AUC =", round(auc(roc_curve3), 2)), col = "skyblue", lwd = 2)
+
+# Compute the AUC
+auc_value3 <- auc(roc_curve3)
+print(paste("AUC:", auc_value3))
+
+```
+
+### Square Root of MonthlyCharges. 
+
+
+```{r}
+# Compute the square root of MonthlyCharges
+clean.data.train$sqrt_MonthlyCharges <- sqrt(clean.data.train$MonthlyCharges)
+
+# Fit the log regression model with the interaction term
+logistic_model_interaction4 <- glm(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+                                  Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+                                  TotalCharges + sqrt_MonthlyCharges,
+                                data = clean.data.train, family = binomial)
+
+# Print the summary of the logistic regression model
+summary(logistic_model_interaction4)
+
+# Create sqrt_MonthlyCharges variable in clean.data.test
+clean.data.test$sqrt_MonthlyCharges <- sqrt(clean.data.test$MonthlyCharges)
+
+# Predict probabilities on the test dataset
+predicted_prob4 <- predict(logistic_model_interaction4, newdata = clean.data.test, type = "response")
+
+# Create ROC plot
+roc_curve4 <- roc(clean.data.test$Status, predicted_prob4)
+plot(roc_curve4, main = "ROC Curve", col = "skyblue")
+legend("bottomright", legend = paste("AUC =", round(auc(roc_curve4), 2)), col = "skyblue", lwd = 2)
+
+# Compute the AUC
+auc_value4 <- auc(roc_curve4)
+print(paste("AUC:", auc_value4))
+
+```
+
+
+### Summary of the five models:
+
+| Model | Logistic Model |Log of TotalCharges| Tenure and Contract | Senior and Contract | Square Root of MonthlyCharges |
+|:-----------:|:-----------:|:--------------:|:----------:| :----------: | :----------: |
+| AUC | $0.848107105744079$ | $0.853204393163006$  | $0.849465785167402$ | $0.848238494523478$ | $0.848647591404785$ |
+
+
+*The model having the highest AUC is the model of log of TotalCharges.*
+
+
+## For the model with the highest AUC, interpret each coefficient and provide guidance to the reader on how varying the different variables will influence customer behavior.
+
+*Interpretation:*
+
+* The log-odds of customers leaving when all predictor variables are at their reference levels is -1.050. Since this value is negative, it means that when all predictors are at their reference levels, the likelihood of customers leaving is lower.
+* For each unit increase in being a senior citizen, the log-odds of the response variable decrease by 0.295, holding all other variables constant.
+* The coefficient for Tenure is positive but not statistically significant (p-value > 0.05). This suggests that tenure doesn't have a significant effect on the log-odds of the response variable.
+* Having no phone service decreases the log-odds of the response variable by 0.785 compared to having multiple lines.
+* Having multiple lines decreases the log-odds of the response variable by 0.384 compared to having a single line.
+* Having fiber optic internet service decreases the log-odds of the response variable by 0.773 compared to having DSL internet service.
+* Not having internet service increases the log-odds of the response variable by 0.626 compared to having DSL internet service.
+* Having a one-year contract increases the log-odds of the response variable by 0.742 compared to having a month-to-month contract.
+* Having a two-year contract increases the log-odds of the response variable by 1.713 compared to having a month-to-month contract.
+* Having paperless billing decreases the log-odds of the response variable by 0.431 compared to having paper billing.
+* Using a credit card for automatic payments increases the log-odds of the response variable by 0.208 compared to using bank transfer (automatic).
+* Using electronic checks decreases the log-odds of the response variable by 0.356 compared to using bank transfer (automatic).
+* Using mailed checks slightly increases the log-odds of the response variable by 0.049 compared to using bank transfer (automatic).
+* For each unit increase in monthly charges, the log-odds of the response variable decrease by 0.022, holding all other variables constant.
+* Total charges don't have a statistically significant effect on the log-odds of the response variable (p-value > 0.05).
+*  For each unit increase in the logarithm of total charges, the log-odds of the response variable increase by 0.616, holding all other variables constant.
+
+
+*Guidance to the reader:*
+
+* Being a senior citizen tends to decrease the likelihood of leaving.
+* Changes in months aren't strongly associated with changes in the likelihood of leaving.
+* While having no phone service substantially reduces leaving likelihood compared to having multiple lines, having multiple lines might still have a slight advantage over having no service at all.
+* Customers with fiber optic service are less likely to go away compared to those without any internet service. However, when comparing fiber optic service to DSL (not explicitly shown in this analysis), fiber optic service might lead to an even higher decrease in leaving likelihood. This implies that choosing fiber optic over DSL could potentially result in a greater reduction in leaving rates.
+* Longer contract terms are associated with lower the likelihood of leaving.
+* Customers who choose paperless billing are less likely to leave than those who do not opt for paperless billing.
+* Customers who use electronic check are less likely to go away than those who use other payment methods.
+* Customers with higher monthly charges are less likely to go away.
+* The coefficient is very close to zero (0.0000375), indicating that total charges have a minimal effect on the log-odds of leaving. 
+* An increase in the logarithm of total charges increases the log-odds of losing a customer by approximately 0.616. This means that higher total charges are associated with a higher likelihood of leaving.
+
+## Try different thresholds to identify the threshold with the highest prediction accuracy on the test set.
+
+
+```{r}
+# We will use a few thresholds and check the inspect a few probabilities
+
+# Set threshold to 0.3 and assign Status
+Predictions.Status.Test.thresh0.3.log <- ifelse(probabilities <= 0.3, "0", "1")
+
+# Set threshold to 0.6 and assign Status
+Predictions.Status.Test.thresh0.6.log <- ifelse(probabilities <= 0.6, "0", "1")
+
+# Set threshold to 0.4 and assign Status
+Predictions.Status.Test.thresh0.4.log <- ifelse(probabilities <= 0.4, "0", "1")
+
+```
+
+
+```{r}
+# Prediction Accuracy with threshold = 0.5
+table(Predictions.Status.Test.thresh0.3.log, Actual.Status.Test)
+```
+* Prediction Accuracy is: (74+934)/(74+12+280+934)=0.7754, i.e., 77.54%
+
+```{r}
+# Prediction Accuracy with threshold = 0.6
+table(Predictions.Status.Test.thresh0.6.log, Actual.Status.Test)
+```
+* Prediction Accuracy is: (240+788)/(240+158+114+788)=0.7908, i.e., 79.08%
+
+```{r}
+# Prediction Accuracy with threshold = 0.4
+table(Predictions.Status.Test.thresh0.4.log, Actual.Status.Test)
+```
+
+* Prediction Accuracy is: (145+883)/(145+63+209+883)=0.7908, i.e., 79.08%
+
+*The highest prediction accuracy on the test set is 80.23% with a threshold of 0.5.*
+
+
+# Naive Bayes
+
+
+```{r}
+# Store the Logistic Regression model as logistic.model.train
+naive.model <- naiveBayes(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges, data = clean.data.train, laplace = 0.01)
+
+# Create the summary of the Logistic Regression Model
+naive.model
+```
+
+
+### Making prediction 
+```{r}
+# Predict probabilities for losing a customer
+naive.predictions.test <- predict(naive.model, newdata = clean.data.test)
+```
+
+### Prediction Accuracy
+```{r}
+# First we will plot the default case, i.e, if posterior probabilty is more than 0.5 then homeowner else not
+table(naive.predictions.test, Actual.Status.Test)
+```
+* Prediction Accuracy is: (254+757)/(254+189+100+757) = 0.7777%, i.e., 77.77%.
+* The test error rate is: 100 - 77.77 = 22.23%.
+* The percentage of Current Customer predicted correctly is 757/(189+757) = 0.8002 or 80.02%.
+* The percentage of Left Customer predicted correctly is 254/(254+100) = 0.7175 or 71.75%.
+* The percentage of Left predictions that were incorrectly classified as Current is 100/(254+100) = 0.2825 or 28.25%.
+* The percentage of Current predictions that were incorrectly classified as Left is 189/(189+757) = 0.1998 or 19.98%.
+
+### AUC and ROC plot. 
+
+```{r}
+# Predict probabilities for losing a customer with type = raw
+naive.predictions.test_probs <- predict(naive.model, newdata = clean.data.test, type = "raw")
+
+# Extract probabilities for class "1"
+naive_probs_class_1 <- naive.predictions.test_probs[, "1"]
+
+# Create ROC plot
+roc_curve.naive <- roc(clean.data.test$Status, naive_probs_class_1)
+plot(roc_curve.naive, main = "ROC Curve", col = "skyblue")
+legend("bottomright", legend = paste("AUC =", round(auc(roc_curve.naive), 2)), col = "skyblue", lwd = 2)
+
+# Compute the AUC
+naive_auc <- auc(roc_curve.naive)
+print(paste("AUC:", naive_auc))
+```
+
+
+## Try different combinations of variables and arrive at the model that maximizes AUC (Area Under the Curve) for the ROC plots.
+
+### Log of TotalCharges
+
+```{r}
+# Store the Naive Bayes model as logistic.model.train
+naive.model.1 <- naiveBayes(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges + log_TotalCharges, data = clean.data.train, laplace = 0.01)
+
+# Create the summary of the Naive Bayes Model
+naive.model.1
+
+# Predict probabilities for losing a customer with type = raw
+naive.predictions.test_probs.1 <- predict(naive.model.1, newdata = clean.data.test, type = "raw")
+
+# Extract probabilities for class "1"
+naive_probs_class_1.1 <- naive.predictions.test_probs.1[, "1"]
+
+# Create ROC plot
+roc_curve.naive.1 <- roc(clean.data.test$Status, naive_probs_class_1.1)
+plot(roc_curve.naive.1, main = "ROC Curve", col = "skyblue")
+legend("bottomright", legend = paste("AUC =", round(auc(roc_curve.naive.1), 2)), col = "skyblue", lwd = 2)
+
+# Compute the AUC
+auc_value.naive.1 <- auc(roc_curve.naive.1)
+print(paste("AUC:", auc_value.naive.1))
+```
+
+### Square Root of MonthlyCharges
+
+```{r}
+# Store the Naive Bayes model as logistic.model.train
+naive.model.2 <- naiveBayes(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges + sqrt_MonthlyCharges, data = clean.data.train, laplace = 0.01)
+
+# Create the summary of the Naive Bayes Model
+naive.model.2
+
+# Predict probabilities for losing a customer with type = raw
+naive.predictions.test_probs.2 <- predict(naive.model.2, newdata = clean.data.test, type = "raw")
+
+# Extract probabilities for class "1"
+naive_probs_class_1.2 <- naive.predictions.test_probs.2[, "1"]
+
+# Create ROC plot
+roc_curve.naive.2 <- roc(clean.data.test$Status, naive_probs_class_1.2)
+plot(roc_curve.naive.2, main = "ROC Curve", col = "skyblue")
+legend("bottomright", legend = paste("AUC =", round(auc(roc_curve.naive.2), 2)), col = "skyblue", lwd = 2)
+
+# Compute the AUC
+auc_value.naive.2 <- auc(roc_curve.naive.2)
+print(paste("AUC:", auc_value.naive.2))
+```
+### New combination without monthly charges
+
+```{r}
+# Store the Naive Bayes model as logistic.model.train
+naive.model.3 <- naiveBayes(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + TotalCharges, data = clean.data.train, laplace =      0.01)
+
+# Create the summary of the Naive Bayes Model
+naive.model.3
+
+# Predict probabilities for losing a customer with type = raw
+naive.predictions.test_probs.3 <- predict(naive.model.3, newdata = clean.data.test, type = "raw")
+
+# Extract probabilities for class "1"
+naive_probs_class_1.3 <- naive.predictions.test_probs.3[, "1"]
+
+# Create ROC plot
+roc_curve.naive.3 <- roc(clean.data.test$Status, naive_probs_class_1.3)
+plot(roc_curve.naive.3, main = "ROC Curve", col = "skyblue")
+legend("bottomright", legend = paste("AUC =", round(auc(roc_curve.naive.3), 2)), col = "skyblue", lwd = 2)
+
+# Compute the AUC
+auc_value.naive.3 <- auc(roc_curve.naive.3)
+print(paste("AUC:", auc_value.naive.3))
+```
+###  Summary of the four models:
+
+| Model | Naive Model |Log of TotalCharges| Square Root of MonthlyCharges | Without monthly charges |
+|:-----------:|:-----------:|:--------------:|:----------:| :----------: |
+| AUC | $0.832904826745979$ | $0.83793044755796$  | $0.82688483176264$ | $0.832292674478327$ |
+
+*The model having the highest AUC is the model of log of TotalCharges.*
+
+## For the model with the highest AUC, try different thresholds to identify the threshold with the highest prediction accuracy on the test set.
+
+```{r}
+# Create predictions with threshold = 0.4
+Predictions.Status.Test.thresh0.4.naive <- ifelse(naive_probs_class_1.1 <= 0.4, "0", "1")
+
+# Create confusion Matrix
+table(Predictions.Status.Test.thresh0.4.naive, Actual.Status.Test)
+```
+* Prediction Accuracy is: (245+775)/(245+109+171+775) = 0.7846, i.e., 78.46%
+
+```{r}
+# Create predictions with threshold = 0.5
+Predictions.Status.Test.thresh0.5.naive <- ifelse(naive_probs_class_1.1 <= 0.5, "0", "1")
+
+# Create confusion Matrix
+table(Predictions.Status.Test.thresh0.5.naive, Actual.Status.Test)
+```
+
+* Prediction Accuracy is: (261+746)/(261+93+200+746) = 0.7746, i.e., 77.46%
+
+
+```{r}
+# Create predictions with threshold = 0.6
+Predictions.Status.Test.thresh0.6.naive <- ifelse(naive_probs_class_1.1 <= 0.6, "0", "1")
+
+# Create confusion Matrix
+table(Predictions.Status.Test.thresh0.6.naive, Actual.Status.Test)
+```
+* Prediction Accuracy is: (272+715)/(272+231+82+715) = 0.7592, i.e., 75.92%
+
+*The highest prediction accuracy on the test set is 78.46% with a threshold of 0.4.*
+
+# Linear Discriminant Analysis
+
+## Use the training set to build a model using Linear Discriminant Analysis to predict the probability for losing a customer.
+
+### Build LDA model
+
+```{r}
+# Store the LDA model as lda.model.train
+lda.model.train <- lda(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges, data = clean.data.train)
+
+# Create the summary of the LDA Model
+lda.model.train
+```
+
+
+### Making Prediction 
+
+```{r}
+lda.predictions.test <- predict(lda.model.train,clean.data.test)
+```
+
+
+```{r}
+names(lda.predictions.test)
+```
+
+* It returns an object of the list datastructure. It has three elements.
+
+```{r}
+head(lda.predictions.test$posterior)
+```
+```{r}
+head(lda.predictions.test$class)
+```
+
+* The first element is the *class* that has the predictions for the categories. In this case it will be either Current(1) or Left(0).
+
+```{r}
+head(lda.predictions.test$x)
+```
+* The column x contains the linear discriminants for each observation.
+
+### Prediction Accuracy
+
+```{r}
+Status_conf_matrix <- confusionMatrix(lda.predictions.test$class, clean.data.test$Status, positive = "0")
+Status_conf_matrix
+```
+
+*Comments:*
+
+* Prediction Accuracy is: (209+832)/(209+114+145+832) = 0.8008%, i.e., 80.08%.
+* The test error rate is: 100 - 80.08 = 19.92%.
+* The percentage of Current Customer predicted correctly is 832/(114+832) = 0.8795 or 87.95%.
+* The percentage of Left Customer predicted correctly is 209/(209+145) = 0.5904 or 59.04%.
+* The percentage of Left predictions that were incorrectly classified as Current is 145/(209+145) = 0.4096 or 40.96%.
+* The percentage of Current predictions that were incorrectly classified as Left is 114/(114+832) = 0.1205 or 12.05%.
+
+### AUC and ROC Plot. 
+
+```{r}
+# Predict probabilities using LDA model
+lda.probs <- predict(lda.model.train, clean.data.test, type = "response")$posterior[, "1"]
+
+# Calculate AUC
+lda_auc <- roc(clean.data.test$Status, lda.probs)$auc
+print(paste("AUC:", lda_auc))
+
+# Plot ROC curve
+plot(roc(clean.data.test$Status, lda.probs), main = paste("ROC Curve (AUC =", round(lda_auc, 2),")"))
+
+```
+
+
+
+## Try different combinations of variables and arrive at the model that maximizes AUC (Area Under the Curve) for the ROC plots.
+
+### Log of TotalCharges
+
+```{r}
+# Store the LDA model as lda.model.train
+lda.model.train.1 <- lda(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges + log_TotalCharges, data = clean.data.train)
+
+# Create the summary of the LDA Model
+lda.model.train.1
+
+# Predict probabilities using LDA model
+lda.probs.1 <- predict(lda.model.train.1, clean.data.test, type = "response")$posterior[, "1"]
+
+# Calculate AUC
+auc <- roc(clean.data.test$Status, lda.probs.1)$auc
+print(paste("AUC:", auc))
+
+# Plot ROC curve
+plot(roc(clean.data.test$Status, lda.probs.1), main = paste("ROC Curve (AUC =", round(auc, 2),")"))
+
+```
+
+
+
+### Tenure and Contract
+
+```{r}
+# Store the LDA model as lda.model.train
+lda.model.train.2 <- lda(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges + Contract:Tenure, data = clean.data.train)
+
+# Create the summary of the LDA Model
+lda.model.train.2
+
+# Predict probabilities using LDA model
+lda.probs.2 <- predict(lda.model.train.2, clean.data.test, type = "response")$posterior[, "1"]
+
+# Calculate AUC
+auc <- roc(clean.data.test$Status, lda.probs.2)$auc
+print(paste("AUC:", auc))
+
+# Plot ROC curve
+plot(roc(clean.data.test$Status, lda.probs.2), main = paste("ROC Curve (AUC =", round(auc, 2),")"))
+```
+
+
+### Senior and Contract
+
+
+```{r}
+# Store the LDA model as lda.model.train
+lda.model.train.3 <- lda(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges + Contract:SeniorCitizen, data = clean.data.train)
+
+# Create the summary of the LDA Model
+lda.model.train.3
+
+# Predict probabilities using LDA model
+lda.probs.3 <- predict(lda.model.train.3, clean.data.test, type = "response")$posterior[, "1"]
+
+# Calculate AUC
+auc <- roc(clean.data.test$Status, lda.probs.3)$auc
+print(paste("AUC:", auc))
+
+# Plot ROC curve
+plot(roc(clean.data.test$Status, lda.probs.3), main = paste("ROC Curve (AUC =", round(auc, 2),")"))
+```
+
+
+### Square Root of MonthlyCharges.
+
+
+```{r}
+# Store the LDA model as lda.model.train
+lda.model.train.4 <- lda(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges + sqrt_MonthlyCharges, data = clean.data.train)
+
+# Create the summary of the LDA Model
+lda.model.train.4
+
+# Predict probabilities using LDA model
+lda.probs.4 <- predict(lda.model.train.4, clean.data.test, type = "response")$posterior[, "1"]
+
+# Calculate AUC
+auc <- roc(clean.data.test$Status, lda.probs.4)$auc
+print(paste("AUC:", auc))
+
+# Plot ROC curve
+plot(roc(clean.data.test$Status, lda.probs.4), main = paste("ROC Curve (AUC =", round(auc, 2),")"))
+```
+
+###  Summary of the five models:
+
+| Model | LDA Model |Log of TotalCharges| Tenure and Contract | Senior and Contract | Square Root of MonthlyCharges |
+|:-----------:|:-----------:|:--------------:|:----------:| :----------: | :----------: |
+| AUC | $0.840638848078738$ | $0.849683771096857$  | $0.843738428829088$ | $0.841006139439329$ | $0.842764957418091$ |
+
+
+*The model having the highest AUC is the model of log of TotalCharges.*
+
+## For the model with the highest AUC, try different thresholds to identify the threshold with the highest prediction accuracy on the test set.
+
+```{r}
+# Create predictions with threshold = 0.4
+Predictions.Status.Test.thresh0.4.lda <- ifelse(lda.probs.1 <= 0.4, "0", "1")
+
+# Create confusion Matrix
+table(Predictions.Status.Test.thresh0.4.lda, Actual.Status.Test)
+```
+* Prediction Accuracy is: (156+884)/(156+62+198+884) = 0.8, i.e., 80%
+
+```{r}
+# Create predictions with threshold = 0.5
+Predictions.Status.Test.thresh0.5.lda <- ifelse(lda.probs.1 <= 0.5, "0", "1")
+
+# Create confusion Matrix
+table(Predictions.Status.Test.thresh0.5.lda, Actual.Status.Test)
+```
+* Prediction Accuracy is: (194+844)/(192+102+160+844) = 0.7997, i.e., 79.97%
+
+```{r}
+# Create predictions with threshold = 0.6
+Predictions.Status.Test.thresh0.6.lda <- ifelse(lda.probs.1 <= 0.6, "0", "1")
+
+# Create confusion Matrix
+table(Predictions.Status.Test.thresh0.6.lda, Actual.Status.Test)
+```
+
+* Prediction Accuracy is: (234+798)/(234+148+120+798) = 0.7938, i.e., 79.38%
+
+*The highest prediction accuracy on the test set is 80% with a threshold of 0.4.*
+
+# Quadratic Discriminant Analysis
+
+## Use the training set to build a model using Linear Discriminant Analysis to predict the probability for losing a customer.
+
+### Build QDA model
+
+```{r}
+# Store the QDA model as lda.model.train
+qda.model.train <- qda(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges, data = clean.data.train)
+
+# Create the summary of the QDA Model
+qda.model.train
+```
+
+### Making Prediction 
+
+```{r}
+qda.predictions.test <- predict(qda.model.train,clean.data.test)
+```
+
+
+```{r}
+names(qda.predictions.test)
+```
+
+* It returns an object of the list datastructure. It has two elements.
+
+```{r}
+head(qda.predictions.test$posterior)
+```
+
+
+```{r}
+head(qda.predictions.test$class)
+```
+
+* The first element is the class that has the predictions for the categories. In this case it will be either Current(1) or Left(0).
+
+### Prediction Accuracy
+
+```{r}
+Status_conf_matrix.qda <- confusionMatrix(qda.predictions.test$class, clean.data.test$Status, positive = "0")
+Status_conf_matrix.qda
+```
+
+*Comments:*
+
+* Prediction Accuracy is: (278+693)/(273+253+76+693) = 0.7469, i.e., 74.69%.
+* The test error rate is: 100 - 74.69 = 25.31%.
+* The percentage of Current Customer predicted correctly is 693/(253+693) = 0.7326 or 73.26%.
+* The percentage of Left Customer predicted correctly is 278/(278+76) = 0.7853 or 78.53%.
+* The percentage of Left predictions that were incorrectly classified as Current is 76/(278+76) = 0.2147 or 21.47%.
+* The percentage of Current predictions that were incorrectly classified as Left is 253/(253+693) = 0.2674 or 26.74%.
+
+
+### AUC and ROC Plot. 
+
+```{r}
+# Predict probabilities using LDA model
+qda.probs <- predict(qda.model.train, clean.data.test, type = "response")$posterior[, "1"]
+
+# Calculate AUC
+qda_auc <- roc(clean.data.test$Status, qda.probs)$auc
+print(paste("AUC:", qda_auc))
+
+# Plot ROC curve
+plot(roc(clean.data.test$Status, qda.probs), main = paste("ROC Curve (AUC =", round(qda_auc, 2),")"))
+
+```
+
+## Try different combinations of variables and arrive at the model that maximizes AUC (Area Under the Curve) for the ROC plots.
+
+### Log of TotalCharges
+
+```{r}
+# Store the QDA model as qda.model.train
+qda.model.train.1 <- qda(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges + log_TotalCharges, data = clean.data.train)
+
+# Create the summary of the QDA Model
+qda.model.train.1
+
+# Predict probabilities using QDA model
+qda.probs.1 <- predict(qda.model.train.1, clean.data.test, type = "response")$posterior[, "1"]
+
+# Calculate AUC
+auc <- roc(clean.data.test$Status, qda.probs.1)$auc
+print(paste("AUC:", auc))
+
+# Plot ROC curve
+plot(roc(clean.data.test$Status, qda.probs.1), main = paste("ROC Curve (AUC =", round(auc, 2),")"))
+
+```
+
+
+
+### Tenure and Contract
+
+```{r}
+# Store the QDA model as qda.model.train
+qda.model.train.2 <- qda(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges + Contract:Tenure, data = clean.data.train)
+
+# Create the summary of the QDA Model
+qda.model.train.2
+
+# Predict probabilities using QDA model
+qda.probs.2 <- predict(qda.model.train.2, clean.data.test, type = "response")$posterior[, "1"]
+
+# Calculate AUC
+auc <- roc(clean.data.test$Status, qda.probs.2)$auc
+print(paste("AUC:", auc))
+
+# Plot ROC curve
+plot(roc(clean.data.test$Status, qda.probs.2), main = paste("ROC Curve (AUC =", round(auc, 2),")"))
+
+```
+
+
+
+
+### Senior and Contract
+
+```{r}
+# Store the QDA model as qda.model.train
+qda.model.train.3 <- qda(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges + Contract:SeniorCitizen, data = clean.data.train)
+
+# Create the summary of the QDA Model
+qda.model.train.3
+
+# Predict probabilities using QDA model
+qda.probs.3 <- predict(qda.model.train.3, clean.data.test, type = "response")$posterior[, "1"]
+
+# Calculate AUC
+auc <- roc(clean.data.test$Status, qda.probs.3)$auc
+print(paste("AUC:", auc))
+
+# Plot ROC curve
+plot(roc(clean.data.test$Status, qda.probs.3), main = paste("ROC Curve (AUC =", round(auc, 2),")"))
+
+```
+
+
+
+### Square Root of MonthlyCharges
+
+```{r}
+# Store the QDA model as qda.model.train
+qda.model.train.4 <- qda(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges + sqrt_MonthlyCharges, data = clean.data.train)
+
+# Create the summary of the QDA Model
+qda.model.train.4
+
+# Predict probabilities using QDA model
+qda.probs.4 <- predict(qda.model.train.4, clean.data.test, type = "response")$posterior[, "1"]
+
+# Calculate AUC
+auc <- roc(clean.data.test$Status, qda.probs.4)$auc
+print(paste("AUC:", auc))
+
+# Plot ROC curve
+plot(roc(clean.data.test$Status, qda.probs.4), main = paste("ROC Curve (AUC =", round(auc, 2),")"))
+
+```
+
+
+### Summary of the five models:
+
+| Model | QDA Model |Log of TotalCharges| Tenure and Contract | Senior and Contract | Square Root of MonthlyCharges |
+|:-----------:|:-----------:|:--------------:|:----------:| :----------: | :----------: |
+| AUC | $0.845106066578278$ | $0.849991340284995$  | $0.846454294621421$ | $0.840610480046822$ | $0.842167735693554$ |
+
+
+*The model having the highest AUC is the model of log of TotalCharges.*
+
+
+## For the model with the highest AUC, try different thresholds to identify the threshold with the highest prediction accuracy on the test set.
+
+```{r}
+# Create predictions with threshold = 0.4
+Predictions.Status.Test.thresh0.4.qda <- ifelse(qda.probs.1 <= 0.4, "0", "1")
+
+# Create confusion Matrix
+table(Predictions.Status.Test.thresh0.4.qda, Actual.Status.Test)
+```
+* Prediction Accuracy is: (280+709)/(280+237+74+709) = 0.7608, i.e., 76.08%
+
+```{r}
+# Create predictions with threshold = 0.5
+Predictions.Status.Test.thresh0.5.qda <- ifelse(qda.probs.1 <= 0.5, "0", "1")
+
+# Create confusion Matrix
+table(Predictions.Status.Test.thresh0.5.qda, Actual.Status.Test)
+```
+* Prediction Accuracy is: (286+686)/(286+260+68+686) = 0.7477, i.e., 74.77%
+
+```{r}
+# Create predictions with threshold = 0.6
+Predictions.Status.Test.thresh0.6.qda <- ifelse(qda.probs.1 <= 0.6, "0", "1")
+
+# Create confusion Matrix
+table(Predictions.Status.Test.thresh0.6.qda, Actual.Status.Test)
+```
+
+* Prediction Accuracy is: (297+672)/(294+274+57+672) = 0.7454, i.e., 74.54%
+
+*The highest prediction accuracy on the test set is 76.08% with a threshold of 0.4.*
+
+
+# Decision Tree
+
+## Use the training set to build a model using Linear Discriminant Analysis to predict the probability for losing a customer.
+
+### Build a regression tree model
+
+```{r}
+# Store the Regression Tree model as tree.model.train
+tree.model.train <- tree(Status ~ SeniorCitizen + Tenure + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges + 
+    TotalCharges, data = clean.data.train)
+
+# Create the summary of the Regression Tree Model
+tree.model.train
+```
+```{r}
+# We now plot the tree
+plot(tree.model.train)
+
+# The code below is required to add labels to the tree. Else it will show a tree without any text or numbers
+text(tree.model.train, pretty = 0)
+```
+
+### Making Prediction
+
+```{r}
+# Create vector with predictions on the test data
+tree.predictions.test <- predict(tree.model.train,clean.data.test)
+head(tree.predictions.test)
+```
+
+
+### Prediction Accuracy
+
+
+```{r}
+# Convert probabilities to predicted classes (0 or 1)
+predicted_classes <- ifelse(tree.predictions.test[, "1"] > 0.5, 1, 0)
+
+# Compare predicted classes with actual classes and calculate accuracy
+accuracy <- mean(predicted_classes == Actual.Status.Test)
+print(paste("Accuracy:", accuracy))
+
+```
+
+
+## Try different combinations of variables and identify the model with the largest prediction accuracy.
+
+### New combination 1:
+
+```{r}
+# Store the Regression Tree model as tree.model.train.1
+tree.model.train1 <- tree(Status ~ SeniorCitizen + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + MonthlyCharges, data = clean.data.train)
+
+# Create the summary of the Regression Tree Model
+tree.model.train1
+
+# Create vector with predictions on the test data
+tree.predictions.test1 <- predict(tree.model.train1,clean.data.test)
+head(tree.predictions.test1)
+# Convert probabilities to predicted classes (0 or 1)
+predicted_classes1 <- ifelse(tree.predictions.test1[, "1"] > 0.5, 1, 0)
+
+# Compare predicted classes with actual classes and calculate accuracy
+accuracy1 <- mean(predicted_classes1 == Actual.Status.Test)
+print(paste("Accuracy:", accuracy1))
+```
+
+
+### New combination 2: 
+
+```{r}
+# Store the Regression Tree model as tree.model.train.2
+tree.model.train2 <- tree(Status ~ SeniorCitizen + MultipleLines + InternetService + 
+    Contract + PaperlessBilling + PaymentMethod + TotalCharges, data = clean.data.train)
+
+# Create the summary of the Regression Tree Model
+tree.model.train2
+
+# Create vector with predictions on the test data
+tree.predictions.test2 <- predict(tree.model.train2,clean.data.test)
+head(tree.predictions.test2)
+# Convert probabilities to predicted classes (0 or 1)
+predicted_classes2 <- ifelse(tree.predictions.test2[, "1"] > 0.5, 1, 0)
+
+# Compare predicted classes with actual classes and calculate accuracy
+accuracy2 <- mean(predicted_classes2 == Actual.Status.Test)
+print(paste("Accuracy:", accuracy2))
+```
+
+
+### New combination 3: 
+
+```{r}
+# Store the Regression Tree model as tree.model.train.3
+tree.model.train3 <- tree(Status ~ Gender + SeniorCitizen + MultipleLines + 
+    Contract + PaperlessBilling + PaymentMethod + TotalCharges, data = clean.data.train)
+
+# Create the summary of the Regression Tree Model
+tree.model.train3
+
+# Create vector with predictions on the test data
+tree.predictions.test3 <- predict(tree.model.train3,clean.data.test)
+head(tree.predictions.test3)
+# Convert probabilities to predicted classes (0 or 1)
+predicted_classes3 <- ifelse(tree.predictions.test3[, "1"] > 0.5, 1, 0)
+
+# Compare predicted classes with actual classes and calculate accuracy
+accuracy3 <- mean(predicted_classes3 == Actual.Status.Test)
+print(paste("Accuracy:", accuracy3))
+```
+
+*The model with the highest prediction accuracy is the new combination 2 at 0.7938. 79.38%*
+
+
+# Comparison across Methods
+
+## Compare across methods (skip the model built with decision trees) used above and report your best method based on ROC plots.
+
+```{r}
+# Compare AUC values
+auc_values <- c(logistic_auc, lda_auc, qda_auc, naive_auc)
+method_names <- c("Logistic Regression", "LDA", "QDA", "Naive Bayes")
+
+# Print AUC values
+print(paste("AUC Values:"))
+print(data.frame(Method = method_names, AUC = auc_values))
+```
+
+*Best Method based on AUC: Logistic Regression*
+
+## Which model does the best in terms of the prediction accuracy on the test set? Include the decision tree model here?
+
+| Model | Logistic Regression |LDA| QDA | Naive Bayes | Decision Tree |
+|:-----------:|:-----------:|:--------------:|:----------:| :----------: | :----------: |
+| Prediction Accuracy | $84.81%$ | $84.06%$  | $84.51%$ | $83.29%$ | $79.38%$ |
+
+
+*The best model in terms of the highest prediction accuracy is Logistic Regression.*
+
+## As a person incharge of making business decisions, what else are you learning from the results you are seeing from all these methods?
+
+*I've learned immensely about the capacity of each model I did. Each model has advantages and disadvantages in the different types of prediction, such as considering the specific requirements and constraints of the business before making a final decision. It can be seen that the logistic regression model has the best result at 80.23% in the prediction accuracy among the other tests. This indicates that Logistic Regression is performing slightly better in accurately predicting customer churn based on the given features. While Logistic Regression also has the highest AUC value, indicating good overall performance in terms of discrimination ability, it's essential to note that other models such as LDA and QDA also have relatively high AUC values. This suggests that these models are also effective in distinguishing between classes, despite being slightly lower than Logistic Regression.*
+
+
+#  Business Analysis and Recommendations
+
+```{r}
+# Load Inplementation Data data set.
+load("Implementation_Data.rda")
+glimpse(Implementation_Data)
+```
+
+
+
+## In terms of relative importance how would you rate the predictors in your model.
+
+*When rating the predictors in terms of their relative importance, we can consider both the magnitude and direction of the coefficients. A positive coefficient indicates that an increase in the predictor variable corresponds to an increase in the odds of the outcome, while a negative coefficient suggests the opposite. Besides, larger absolute values of coefficients suggest stronger associations with the outcome. For instance, if the coefficient for a predictor like "SeniorCitizen" is larger in magnitude, it implies that changes in SeniotCitizen have a more pronounced impact on the odds of the outcome. Additionally, checking the significance of the coefficients through p-values can provide valuable insights (p-value should be less than 0.05).Therefore, predictors with lower p-values are likely to have a more significant influence on the outcome.*
+
+
+## How many customers does your model predict are in danger of leaving? 
+
+
+```{r}
+
+# Use the logistic regression model to predict probabilities
+Implementation_Data$predicted_probabilities <- predict(logistic.model.new1, newdata = Implementation_Data, type = "response")
+
+# Apply the threshold to classify customers
+Implementation_Data$predicted_status <- ifelse(Implementation_Data$predicted_probabilities <= 0.5, "In danger of leaving", "Not in danger of leaving")
+
+# Count the number of customers predicted to be in danger of leaving
+customers_in_danger <- sum(Implementation_Data$predicted_status == "In danger of leaving")
+
+# Display the count
+print(paste("Number of customers predicted to be in danger of leaving:", customers_in_danger))
+
+```
+
+
+## As a business manager, which factors would you focus on (for example you could invest in offering some incentives or promotions) to decrease the chances of customers leaving?
+
+* Internet Service
+* Contract Terms 
+* Payment Method
+
+
+## Propose an incentive scheme to your manager that can help reduce the loss in revenue by retaining some (or all) customers.
+
+*I would focus on those variables having lower p-values because it's likely to have a more significant influence on the outcome and capable of investing. For example, long-term contracts play a vital role in retaining customers, as we've got analysis above. People prefer to choose short-term contracts such as month-to-month because they might be able to change to other services if they are more interested. So, I would create a few more exciting terms in the long-term contract that could attract buyers, such as gaining more three-free months if they sign a 1-year contract, and more five-free months if they sign a 2-year contract.*
+
+## Provide justification by evaluating costs and benefits of your incentive scheme. Costs will be the dollar amount in incentives given (for example). Benefits will be the revenues from these customers if they stay with your company. Compute the net benefits from your incentive scheme. Make a case in your report to your upper management for implementing your scheme.
+
+
+```{r}
+# Define the cost of incentives
+cost_per_free_month <- 50  # Hypothetical cost per free month offered in the incentive scheme
+
+# Calculate total cost of incentives
+total.cost <- sum(Implementation_Data$Contract == "Two year") * cost_per_free_month * 5 +
+              sum(Implementation_Data$Contract == "One year") * cost_per_free_month * 3
+total.cost
+# Predict probabilities of retention using logistic regression model
+predicted.probabilities.ID <- predict(logistic.model.new1, newdata = Implementation_Data, type = "response")
+
+# Estimate benefits - calculate expected revenue from retained customers
+expected.revenue <- sum(predicted.probabilities.ID * Implementation_Data$TotalCharges)
+round(expected.revenue)
+# Compute net benefits
+net.benefits <- expected.revenue - total.cost
+round(net.benefits)
+```
+
+
+* Total Cost of Incentives: $ 47200
+* Expected Revenue from Retained Customers: $ 989229
+* Net Benefits: $ 942029
