@@ -1,4 +1,4 @@
-# RStuido-Machine-Learning
+# Customers Churn & Retention Predictive Analytics
 ## Project Overview
 
 Customer retention is a critical aspect of customer relationship management, as acquiring new customers is often more costly than retaining existing ones. The objective of this project is to analyze customer data from a telecommunications company to identify customers at risk of leaving. By developing predictive models, we can suggest strategies to retain these customers through targeted incentives.
